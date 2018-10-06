@@ -1,0 +1,24 @@
+Enter Program
+* Get next hop from args?
+* Check to see if running in init mode, or to be part of a chain
+  * GOTO either Init mode or Chain mode
+    * If going to Chain Mode, check first if we are needing to run continuously
+    * If going into Init mode, check whether to enter chain mode, and if continuously
+
+Enter Init Mode
+* Get data to transmit from user
+* Create packet
+* Send to next hop
+* GOTO End OR GOTO Chain Mode
+
+Enter Chain Mode
+* Begin to listen for incoming packet
+* Receive incoming packet
+* Close server
+* Create new headers for new/existing packet
+* Pass on packet as client socket to next hop
+* Close client socket
+* GOTO End OR GOTO Chain Mode
+
+Enter End
+* Close sockets, exit program

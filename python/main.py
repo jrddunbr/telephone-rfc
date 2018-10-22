@@ -7,43 +7,73 @@ VERSION = "1.7"
 def buildPacket():
     pass
 
+def checksum(data):
+    if len(data) & 1:
+        data = data + b'\0'
+    sum = 0
+    for i in range(0, len(data), 2):
+        sum += ord(data[i]) + (ord(data[i + 1]) << 8)
+    while (sum >> 16) > 0:
+        sum = (sum & 0xFFFF) + (sum >> 16)
+    return ~sum
+
 class ClientMode:
-    def __init__(self):
-        pass
+    def __init__(self, serverIP, serverPort, charset):
+
+        # Initialization of variables
+        self.serverIP = serverIP
+        self.serverPort = serverPort
+        self.charset = charset
+        self.tr = "\r\n"
+        self.version = "1.7"
+
+        # Construct the client socket
+        self.c = socket.socket()
+        self.c.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.c.connect(self.serverIP, self.serverPort)
+        self.c.write("HELLO {}{}".format(self.version, self.tr))
+
+    def clientCommandHandler(self):
+        data = self.c.recv(256).decode(self.charset)
+        if "\r" not in data:
+            self.tr = "\n"
+            print("Error, newlines are not CRLF")
+            warningHeaders.append("Newlines are not in CRLF form")
+        if data == "HELLO {}{}".format(self.version, self.tr):
+            print("Hello complete.")
+            return "CONTINUE"
+        elif "HELLO" in data:
+            print("Client Telephone Version Incompatible")
+            c.write("GOODBYE{}".format("\r\n").encode(self.charset))
+            c.close()
+        if data == "SUCCESS{}".format(self.tr):
+            c.write("GOODBYE{}".format("\r\n").encode(self.charset))
+            return "SUCCESS"
+        if data == "GOODBYE".format(self.tr):
+            c.close()
+            return "TERMINATE"
+        if data == "WARN{}".format(self.tr):
+            c.write("GOODBYE{}".format("\r\n").encode(self.charset))
+            return "WARN"
 
 class ServerMode:
     def __init__(self, listenIP, listenPort, charset):
+
+        # Initialization of variables
         self.listenIP = listenIP
         self.listenPort = listenPort
         self.charset = charset
+        self.tr = "\r\n"
+        self.version = "1.7"
+        self.warningHeaders = []
+
+        # Construct the server socket
         self.s = socket.socket()
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(self.listenIP, self.listenPort)
-        s.listen()
+        self.s.bind(self.listenIP, self.listenPort)
+        self.s.listen()
 
-    def step(self):
-        warningHeaders = []
-        c, caddr = s.accept()
-        c.send("HELLO {}".format(VERSION).encode(self.charset))
-        data = c.recv(1024).decode(self.charset)
-        if not data:
-            c.send("QUIT".encode(self.charset))
-            c.close()
-            return
-        if data.split("\n")[0].strip() != "HELLO {}".format(VERSION):
-            c.send("QUIT".encode(self.charset))
-            c.close()
-            return
-        data = c.recv(1024).decode(self.charset)
-        if not data:
-            c.send("QUIT".encode(self.charset))
-            c.close()
-            return
-        lr = "\r\n"
-        if not "\r" in data:
-            lr = "\n"
-            print("Non compliance detected, line feeds are not proper CRLF characters")
-            warningHeaders.append("CRLF is not properly enumerated. Using LF only.")
+    def parseData(self, socket):
         lines = data.split(lr)
         end = -1
         for x in range(0, len(lines)):
@@ -51,22 +81,44 @@ class ServerMode:
             end = x
         if end == -1:
             print("Non compliance detected, there is no end of message, indicated by  <CRLF>.<CRLF>")
-            warningHeaders.append("No end of message detected")
-        ehdr = -1
-        for x in range(0, len(end)):
-            if lines[x] == ""
-            ehdr = x
-        if ehdr == -1:
-            print("Non compliance detected, there is no header seperation.")
-            warningHeaders.append("Error, headers not properly enumerated.")
-        
+            warningHeaders.append("No EOM detected")
 
+    def serverCommandHandler(self, socket):
+        data = c.recv(256).decode(self.charset)
+        if "\r" not in data:
+            self.tr = "\n"
+            print("Error, newlines are not CRLF")
+            warningHeaders.append("Newlines are not in CRLF form")
+        if data == "HELLO {}{}".format(self.version, self.tr):
+            print("Hello complete.")
+            return "CONTINUE"
+        elif "HELLO" in data:
+            print("Client Telephone Version Incompatible")
+            c.write("GOODBYE{}".format("\r\n").encode(self.charset))
+            c.close()
+        if data == "DATA{}".format(self.tr):
+            return "DATA"
+        if data == "QUIT".format(self.tr):
+            c.write("GOODBYE{}".format("\r\n").encode(self.charset))
+            c.close()
+            return "TERMINATE"
 
+    def serverInstance(self):
+        warningHeaders = []
+        c, caddr = self.s.accept()
+        c.send("HELLO {}".format(VERSION).encode(self.charset))
+        # Recieve HELLO version from Client
+        run = True
+        while run:
+            action = self.serverCommandHandler(socket)
+            if action == "CONTINUE":
+                pass
+            if action == "DATA"
+                self.parseData(socket)
+            if action == "TERMINATE":
+                run = False
 
-
-
-
-def printUsage(pname = pname):
+def printUsage(pname=pname):
     print("Usage:\n")
     if pname != None:
         pname = ""

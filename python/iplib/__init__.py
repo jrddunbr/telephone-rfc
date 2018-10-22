@@ -1,11 +1,25 @@
 class iplib:
-    # If good address, return true
+    # If good address, return True
     def checkIPv4(addr):
-        bad = True
+        good = True
         octets = addr.split(".")
         if(len(octets)) == 4:
-            bad = False
             for octet in octets:
                 if not (octet >= 0 and octet <= 255):
-                    bad = True
-        return not bad
+                    good = False
+        else:
+            good = False
+        return good
+
+    # If good address, return True
+    def checkIPv4maybePort(addr):
+        if ":" in addr:
+            ip, port = addr.split(":",1)
+            good = checkIPv4(ip)
+            try:
+                _ = int(port)
+                return good
+            except:
+                return False
+        else:
+            return checkIPv4(addr)

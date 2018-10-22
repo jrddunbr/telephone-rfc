@@ -2,11 +2,6 @@
 
 import socket, time, date, os, sys, iplib
 
-VERSION = "1.7"
-
-def buildPacket():
-    pass
-
 def checksum(data):
     if len(data) & 1:
         data = data + b'\0'
@@ -106,7 +101,7 @@ class ServerMode:
     def serverInstance(self):
         warningHeaders = []
         c, caddr = self.s.accept()
-        c.send("HELLO {}".format(VERSION).encode(self.charset))
+        c.send("HELLO {}".format(self.version).encode(self.charset))
         # Recieve HELLO version from Client
         run = True
         while run:
@@ -173,5 +168,13 @@ def main():
     if charset not in ["utf-8", "ascii"]:
         print("Invalid Charset")
         sys.exit(1)
+
+    if mode:
+        # Origination mode
+        c = ClientMode(dest, port)
+    else:
+        # Chain mode
+
+
 
 main()

@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import socket, time, date, os, sys, iplib
+import socket, time, datetime, os, sys, iplib
 
 def checksum(data):
     if len(data) & 1:
@@ -72,8 +72,8 @@ class ServerMode:
         lines = data.split(lr)
         end = -1
         for x in range(0, len(lines)):
-            if lines[x] == "."
-            end = x
+            if lines[x] == ".":
+                end = x
         if end == -1:
             print("Non compliance detected, there is no end of message, indicated by  <CRLF>.<CRLF>")
             warningHeaders.append("No EOM detected")
@@ -108,15 +108,14 @@ class ServerMode:
             action = self.serverCommandHandler(socket)
             if action == "CONTINUE":
                 pass
-            if action == "DATA"
+            if action == "DATA":
                 self.parseData(socket)
             if action == "TERMINATE":
                 run = False
 
-def printUsage(pname=pname):
+def printUsage():
     print("Usage:\n")
-    if pname != None:
-        pname = ""
+    pname = "python3 main.py"
     print("{} <dest> [mode] [charset] [source]\n".format(pname))
     print("Where:")
     print("* dest is the destination IP address for the next hop")
@@ -132,36 +131,36 @@ def main():
     source = "0.0.0.0" # default source address - any address
     mode = False # False is not originiate, ie, chain mode
     charset = "utf-8"
-    if len(sys.args) == 2:
+    if len(sys.argv) == 2:
         # dest
-        dest = sys.args[1]
-    elif len(sys.args) == 3:
+        dest = sys.argv[1]
+    elif len(sys.argv) == 3:
         # dest, mode
-        dest = sys.args[1]
-        ms = sys.args[2].lower().strip()
-        mode = ms == "0" or ms == "o" or or ms == "originator" or ms == "init" or ms == "start"
-    elif len(sys.args) == 4:
+        dest = sys.argv[1]
+        ms = sys.argv[2].lower().strip()
+        mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
+    elif len(sys.argv) == 4:
     # dest, mode, source
-        dest = sys.args[1]
-        ms = sys.args[2].lower().strip()
-        mode = ms == "0" or ms == "o" or or ms == "originator" or ms == "init" or ms == "start"
-        charset = sys.args[3]
-    elif len(sys.args) == 5:
+        dest = sys.argv[1]
+        ms = sys.argv[2].lower().strip()
+        mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
+        charset = sys.argv[3]
+    elif len(sys.argv) == 5:
     # dest, mode, source
-        dest = sys.args[1]
-        ms = sys.args[2].lower().strip()
-        mode = ms == "0" or ms == "o" or or ms == "originator" or ms == "init" or ms == "start"
-        charset = sys.args[3]
-        source = sys.args[4]
+        dest = sys.argv[1]
+        ms = sys.argv[2].lower().strip()
+        mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
+        charset = sys.argv[3]
+        source = sys.argv[4]
     else:
         # error, do the usage dialog
         printUsage()
 
-    if not iplib.checkIPv4(dest):
+    if not iplib.checkIPv4maybePort(dest):
         print("Sorry, but {} is not a valid IPv4 address".format(dest))
         sys.exit(1)
 
-    if not iplib.checkIPv4(source):
+    if not iplib.checkIPv4maybePort(source):
         print("Sorry, but {} is not a valid IPv4 address".format(source))
         sys.exit(1)
 
@@ -169,12 +168,25 @@ def main():
         print("Invalid Charset")
         sys.exit(1)
 
+    print("stuff looks good. starting")
+    print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(dest, source, charset, mode))
+
     if mode:
         # Origination mode
-        c = ClientMode(dest, port)
+        print("Entering ORIGIN mode")
+        message = input("Input message:\n")
+        print("=======\nMessage:")
+        print(message)
+
+        #c = ClientMode(dest, port)
+        #while True:
+            #ret = c.clientCommandHandler()
     else:
         # Chain mode
-
-
+        print("Entering CHAIN mode")
+        
+        #s = ServerMode(source, port)
+        #while True:
+            #ret = s.serverCommandHandler()
 
 main()

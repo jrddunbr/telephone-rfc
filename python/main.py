@@ -2,25 +2,30 @@
 
 import socket, time, datetime, os, sys, iplib, string, random, platform
 
-DBG = True
+DBG = False
+HLP = False
 
 def checksum(data):
+    if type(data) != type(b'\0'):
+        print("[CRITICAL BUG] NON ENCODED DATA PASSED TO CHECKSUM FUNCTION")
     if len(data) & 1:
         data = data + b'\0'
     sum = 0
     for i in range(0, len(data), 2):
-        sum += ord(data[i]) + (ord(data[i + 1]) << 8)
+        sum += data[i] + (data[i + 1]) << 8
     while (sum >> 16) > 0:
         sum = (sum & 0xFFFF) + (sum >> 16)
-    return (~sum) & 0xFFFF
+    return "{:04x}".format((~sum) & 0xFFFF)
 
 def mkRandNum(size):
     return ''.join(random.SystemRandom().choice(string.digits) for _ in range(size))
 
 class HeaderHandler:
-    def __init__(self):
+    def __init__(self, charset):
         self.raw_headers = ""
         self.hop = {}
+        self.lhd = "" # Latest HeaDers sent
+        self.charset = charset
 
     def feedIncomingHeaders(self, headerString):
         self.raw_headers = headerString
@@ -66,8 +71,9 @@ class HeaderHandler:
             self.hop[0]["Author"] = "Jared Dunbar"
             tm = datetime.datetime.now()
             self.hop[0]["SendingTimestamp"] = "{}:{}:{}:{}".format(tm.hour, tm.minute, tm.second, int(tm.microsecond / 100))
-            self.hop[0]["MessageChecksum"] = checksum(msg)
-            return str(self.hop[0])
+            self.hop[0]["MessageChecksum"] = checksum(msg.encode(self.charset))
+            self.lhd = str("\r\n".join(self.hop[0]))
+            return self.lhd
         else:
             # generate new headers on top of the existing headers
 
@@ -95,6 +101,10 @@ SendingTimestamp: 16:59:59:009
 MessageChecksum: 423F
 HeadersChecksum: 6F38
 """
+
+    def getHeaderSum(self):
+        hcsm = checksum(self.lhd.encode(self.charset))
+        return "HeaderChecksum: {}\r\n".format(hcsm)
 
 class ClientMode:
     def __init__(self, serverIP, serverPort, charset):
@@ -124,16 +134,16 @@ class ClientMode:
             return "CONTINUE"
         elif "HELLO" in data:
             print("[err] Client Telephone Version Incompatible")
-            self.c.send("GOODBYE{}\r\n".format("\r\n").encode(self.charset))
+            self.c.send("GOODBYE\r\n".encode(self.charset))
             self.c.close()
         if data == "SUCCESS{}".format(self.tr):
-            self.c.send("GOODBYE{}\r\n".format("\r\n").encode(self.charset))
+            self.c.send("GOODBYE\r\n".encode(self.charset))
             return "SUCCESS"
         if data == "GOODBYE".format(self.tr):
             self.c.close()
             return "TERMINATE"
         if data == "WARN{}".format(self.tr):
-            self.c.send("GOODBYE{}\r\n".format("\r\n").encode(self.charset))
+            self.c.send("GOODBYE\r\n".encode(self.charset))
             return "WARN"
 
 class ServerMode:
@@ -173,12 +183,12 @@ class ServerMode:
             return "CONTINUE"
         elif "HELLO" in data:
             print("[err] Client Telephone Version Incompatible")
-            c.send("GOODBYE{}\r\n".format("\r\n").encode(self.charset))
+            c.send("GOODBYE\r\n".encode(self.charset))
             c.close()
         if data == "DATA{}".format(self.tr):
             return "DATA"
         if data == "QUIT".format(self.tr):
-            c.send("GOODBYE{}\r\n".format("\r\n").encode(self.charset))
+            c.send("GOODBYE\r\n".encode(self.charset))
             c.close()
             return "TERMINATE"
 
@@ -211,6 +221,7 @@ def printUsage():
     sys.exit(0)
 
 def main():
+    global HLP
     dest = ""
     source = "0.0.0.0" # default source address - any address
     defport = 32409
@@ -254,7 +265,7 @@ def main():
         sys.exit(1)
 
     if DBG: print("[dbg] stuff looks good. starting")
-    print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(dest, source, charset, mode))
+    if DBG: print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(dest, source, charset, mode))
 
     if mode:
         # Origination mode
@@ -271,14 +282,18 @@ def main():
         c = ClientMode(dest, port, charset)
         while True:
             if DBG: print("[dbg] ENTER LOOP")
+            if HLP: print("[hlp] On server, type either \"HELLO 1.7\", \"SUCCESS\", \"WARN\" or \"GOODBYE\"")
             ret = c.clientCommandHandler()
+            if c.tr == "\n": HLP = True
             if ret == "CONTINUE":
                 # continue to send data, create headers, etc.
-                hh = HeaderHandler()
+                hh = HeaderHandler(charset)
                 headers = hh.generateOutgoingHeaders("1","2","3","4", message)
-                print(headers)
+                #print(headers)
                 c.c.send("DATA\r\n".encode(charset))
                 c.c.send(headers.encode(charset))
+                c.c.send("\r\n".encode(charset))
+                c.c.send(hh.getHeaderSum().encode(charset))
                 c.c.send(message.encode(charset))
                 c.c.send("\r\n.\r\n".encode(charset))
             elif ret == "SUCCESS":

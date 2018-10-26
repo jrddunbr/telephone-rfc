@@ -64,43 +64,21 @@ class HeaderHandler:
             self.hop[0] = {}
             self.hop[0]["Hop"] = str(0)
             self.hop[0]["MessageId"] = str(mkRandNum(8))
-            self.hop[0]["FromNetworkAddress"] = "{}:{}".format(src, srcp)
-            self.hop[0]["ToNetworkAddress"] = "{}:{}".format(dest, destp)
+            self.hop[0]["FromHost"] = "{}:{}".format(src, srcp)
+            self.hop[0]["ToHost"] = "{}:{}".format(dest, destp)
             self.hop[0]["System"] = "{} {} {}".format(platform.system(), platform.machine(), platform.release())
             self.hop[0]["Program"] = "{}/{}".format("Python", platform.python_version())
             self.hop[0]["Author"] = "Jared Dunbar"
-            tm = datetime.datetime.now()
+            tm = datetime.datetime.utcnow()
             self.hop[0]["SendingTimestamp"] = "{}:{}:{}:{}".format(tm.hour, tm.minute, tm.second, int(tm.microsecond / 100))
             self.hop[0]["MessageChecksum"] = checksum(msg.encode(self.charset))
-            self.lhd = str("\r\n".join(self.hop[0]))
+            self.ldh = ""
+            for hd in self.hop[0]:
+                self.lhd += str("{}: {}\r\n".format(hd, self.hop[0][hd]))
             return self.lhd
         else:
             # generate new headers on top of the existing headers
-
-            d = """
-        headers = outputHeaders
-
-Hop: 1
-MessageId: 3456
-FromNetworkAddress: 192.168.0.12:9879
-ToNetworkAddress: 192.168.0.4:8888
-System: WINDOWS/XP
-Program: JAVA/JAVAC
-Author: Frodo Baggins
-SendingTimestamp: 17:00:00:000
-MessageChecksum: 432F
-HeadersChecksum: A350
-Hop: 0
-MessageId: 3456
-NetworkFromAddress: 192.168.0.1:34953
-NetworkToaddress: 192.168.0.12:8888
-System: LINIX/DEBIAN/R3.0
-Program: C++/GCC
-Author: Alex, J./Jacky Elton/David Wang
-SendingTimestamp: 16:59:59:009
-MessageChecksum: 423F
-HeadersChecksum: 6F38
-"""
+            pass
 
     def getHeaderSum(self):
         hcsm = checksum(self.lhd.encode(self.charset))
@@ -137,13 +115,11 @@ class ClientMode:
             self.c.send("GOODBYE\r\n".encode(self.charset))
             self.c.close()
         if data == "SUCCESS{}".format(self.tr):
-            self.c.send("GOODBYE\r\n".encode(self.charset))
             return "SUCCESS"
         if data == "GOODBYE".format(self.tr):
             self.c.close()
             return "TERMINATE"
         if data == "WARN{}".format(self.tr):
-            self.c.send("GOODBYE\r\n".encode(self.charset))
             return "WARN"
 
 class ServerMode:
@@ -222,28 +198,29 @@ def printUsage():
 
 def main():
     global HLP
-    dest = ""
+    deste = "" # possibly errored and with port potentially
+    dest = "" # definte destination IP only.
     source = "0.0.0.0" # default source address - any address
     defport = 32409
     mode = False # False is not originiate, ie, chain mode
     charset = "ascii"
     if len(sys.argv) == 2:
-        # dest
-        dest = sys.argv[1]
+        # deste
+        deste = sys.argv[1]
     elif len(sys.argv) == 3:
-        # dest, mode
-        dest = sys.argv[1]
+        # deste, mode
+        deste = sys.argv[1]
         ms = sys.argv[2].lower().strip()
         mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
     elif len(sys.argv) == 4:
     # dest, mode, source
-        dest = sys.argv[1]
+        deste = sys.argv[1]
         ms = sys.argv[2].lower().strip()
         mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
         charset = sys.argv[3]
     elif len(sys.argv) == 5:
     # dest, mode, source
-        dest = sys.argv[1]
+        deste = sys.argv[1]
         ms = sys.argv[2].lower().strip()
         mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
         charset = sys.argv[3]
@@ -252,8 +229,8 @@ def main():
         # error, do the usage dialog
         printUsage()
 
-    if not iplib.checkIPv4maybePort(dest):
-        print("[err] Sorry, but {} is not a valid IPv4 address".format(dest))
+    if not iplib.checkIPv4maybePort(deste):
+        print("[err] Sorry, but {} is not a valid IPv4 address".format(deste))
         sys.exit(1)
 
     if not iplib.checkIPv4maybePort(source):
@@ -265,7 +242,7 @@ def main():
         sys.exit(1)
 
     if DBG: print("[dbg] stuff looks good. starting")
-    if DBG: print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(dest, source, charset, mode))
+    if DBG: print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(deste, source, charset, mode))
 
     if mode:
         # Origination mode
@@ -273,13 +250,16 @@ def main():
         message = input("Input message:\n")
         print("=======\nMessage:")
         print(message)
-        if iplib.hasPort(dest):
-            dest = dest.split(":",1)[0]
-            port = int(dest.split(":",1)[1])
+        if iplib.hasPort(deste):
+            if DBG: print(deste.split(":",1))
+            dest = deste.split(":",1)[0]
+            port = int(deste.split(":",1)[1])
         else:
             if DBG: print("[dbg] Using default port of {}".format(defport))
             port = defport
         c = ClientMode(dest, port, charset)
+        src = c.c.getsockname()[0]
+        srcp = c.c.getsockname()[1]
         while True:
             if DBG: print("[dbg] ENTER LOOP")
             if HLP: print("[hlp] On server, type either \"HELLO 1.7\", \"SUCCESS\", \"WARN\" or \"GOODBYE\"")
@@ -288,15 +268,19 @@ def main():
             if ret == "CONTINUE":
                 # continue to send data, create headers, etc.
                 hh = HeaderHandler(charset)
-                headers = hh.generateOutgoingHeaders("1","2","3","4", message)
+                # dest, destp, src, srcp, msg
+                headers = hh.generateOutgoingHeaders(dest, port, src, srcp, message)
                 #print(headers)
                 c.c.send("DATA\r\n".encode(charset))
                 c.c.send(headers.encode(charset))
-                c.c.send("\r\n".encode(charset))
                 c.c.send(hh.getHeaderSum().encode(charset))
+                c.c.send("\r\n".encode(charset))
                 c.c.send(message.encode(charset))
                 c.c.send("\r\n.\r\n".encode(charset))
             elif ret == "SUCCESS":
+                c.c.send("QUIT\r\n".encode(charset))
+            elif ret == "WARN":
+                print("Server responds WARN!")
                 c.c.send("QUIT\r\n".encode(charset))
             else:
                 break

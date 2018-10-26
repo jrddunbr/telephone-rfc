@@ -31,7 +31,7 @@ class HeaderHandler:
         self.raw_headers = headerString
         self.lraw_headers = self.raw_headers.lower()
 
-    def getHighestHopNum(self):
+    def getThisHopNum(self):
         if self.lraw_headers == "":
             return 0
         else:
@@ -59,26 +59,32 @@ class HeaderHandler:
 
     def generateOutgoingHeaders(self, dest, destp, src, srcp, msg):
         outputHeaders = ""
+        mid = str(mkRandNum(8))
+        myHop = 0
         if self.raw_headers == "":
-            # generate clean headers
-            self.hop[0] = {}
-            self.hop[0]["Hop"] = str(0)
-            self.hop[0]["MessageId"] = str(mkRandNum(8))
-            self.hop[0]["FromHost"] = "{}:{}".format(src, srcp)
-            self.hop[0]["ToHost"] = "{}:{}".format(dest, destp)
-            self.hop[0]["System"] = "{} {} {}".format(platform.system(), platform.machine(), platform.release())
-            self.hop[0]["Program"] = "{}/{}".format("Python", platform.python_version())
-            self.hop[0]["Author"] = "Jared Dunbar"
-            tm = datetime.datetime.utcnow()
-            self.hop[0]["SendingTimestamp"] = "{}:{}:{}:{}".format(tm.hour, tm.minute, tm.second, int(tm.microsecond / 100))
-            self.hop[0]["MessageChecksum"] = checksum(msg.encode(self.charset))
-            self.ldh = ""
-            for hd in self.hop[0]:
-                self.lhd += str("{}: {}\r\n".format(hd, self.hop[0][hd]))
-            return self.lhd
-        else:
-            # generate new headers on top of the existing headers
+            # generate initial header variables
             pass
+        else:
+            mid = self.getMessageId()
+            myHop = self.getThisHopNum()
+        # generate new headers on top of the existing headers
+        self.hop[myHop] = {}
+        self.hop[myHop]["Hop"] = str(0)
+        self.hop[myHop]["MessageId"] = mid
+        self.hop[myHop]["FromHost"] = "{}:{}".format(src, srcp)
+        self.hop[myHop]["ToHost"] = "{}:{}".format(dest, destp)
+        self.hop[myHop]["System"] = "{} {} {}".format(platform.system(), platform.machine(), platform.release())
+        self.hop[myHop]["Program"] = "{}/{}".format("Python", platform.python_version())
+        self.hop[myHop]["Author"] = "Jared Dunbar"
+        tm = datetime.datetime.utcnow()
+        self.hop[myHop]["SendingTimestamp"] = "{}:{}:{}:{}".format(tm.hour, tm.minute, tm.second, int(tm.microsecond / 100))
+        self.hop[myHop]["MessageChecksum"] = checksum(msg.encode(self.charset))
+        self.ldh = ""
+        for hd in self.hop[myHop]:
+            self.lhd += str("{}: {}\r\n".format(hd, self.hop[myHop][hd]))
+        if self.raw_headers != "":
+            self.lhd = raw_headers + self.lhd
+        return self.lhd
 
     def getHeaderSum(self):
         hcsm = checksum(self.lhd.encode(self.charset))
@@ -294,8 +300,8 @@ def main():
         else:
             if DBG: print("[dbg] Using default port of {}".format(defport))
             port = defport
-        #s = ServerMode(source, port, charset)
-        #while True:
-            #ret = s.serverCommandHandler()
-
+        s = ServerMode(source, port, charset)
+        while True:
+            ret = s.serverCommandHandler()
+            print(ret)
 main()

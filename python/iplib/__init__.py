@@ -38,3 +38,6 @@ def checkIPv4maybePort(addr):
             return False
     else:
         return checkIPv4(addr)
+
+def hasPort(addr):
+    return ":" in addr

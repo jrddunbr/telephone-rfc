@@ -2,20 +2,8 @@
 
 import socket, time, datetime, os, sys, iplib, string, random, platform
 
-DBG = False
+DBG = True
 HLP = False
-
-def checksum(data):
-    if type(data) != type(b'\0'):
-        print("[CRITICAL BUG] NON ENCODED DATA PASSED TO CHECKSUM FUNCTION")
-    if len(data) & 1:
-        data = data + b'\0'
-    sum = 0
-    for i in range(0, len(data), 2):
-        sum += data[i] + (data[i + 1]) << 8
-    while (sum >> 16) > 0:
-        sum = (sum & 0xFFFF) + (sum >> 16)
-    return "{:04x}".format((~sum) & 0xFFFF)
 
 def mkRandNum(size):
     return ''.join(random.SystemRandom().choice(string.digits) for _ in range(size))
@@ -98,7 +86,7 @@ class ClientMode:
         self.serverPort = serverPort
         self.charset = charset
         self.tr = "\r\n"
-        self.version = "1.7"
+        self.version = "1.7.1"
         self.warningHeaders = []
 
         # Construct the client socket
@@ -136,16 +124,19 @@ class ServerMode:
         self.listenPort = listenPort
         self.charset = charset
         self.tr = "\r\n"
-        self.version = "1.7"
+        self.version = "1.7.1"
         self.warningHeaders = []
 
         # Construct the server socket
         self.s = socket.socket()
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.s.bind(self.listenIP, self.listenPort)
+        if DBG: print("[dbg] binding server to {}:{}".format(self.listenIP, self.listenPort))
+        self.s.bind((self.listenIP, self.listenPort))
         self.s.listen()
+        if DBG: print("[dbg] listening?")
 
     def parseData(self, socket):
+        data = c.recv(2048).decode(self.charset)
         lines = data.split(lr)
         end = -1
         for x in range(0, len(lines)):
@@ -155,7 +146,10 @@ class ServerMode:
             print("[err] Non compliance detected, there is no end of message, indicated by  <CRLF>.<CRLF>")
             self.warningHeaders.append("No EOM detected")
 
-    def serverCommandHandler(self, socket):
+    def serverCommandHandler(self, c):
+        data = c.recv(256).decode(self.charset)
+        if DBG: print("[dbg] SCH init")
+        if DBG: print(data)
         if "\r" not in data:
             self.tr = "\n"
             print("[err] Newlines are not CRLF")
@@ -175,19 +169,22 @@ class ServerMode:
             return "TERMINATE"
 
     def serverInstance(self):
+        inHeaders = ""
+        inData = ""
         warningHeaders = []
         c, caddr = self.s.accept()
         c.send("HELLO {}\r\n".format(self.version).encode(self.charset))
         # Recieve HELLO version from Client
         run = True
         while run:
-            action = self.serverCommandHandler(socket)
+            action = self.serverCommandHandler(c)
             if action == "CONTINUE":
                 pass
             if action == "DATA":
-                self.parseData(socket)
+                self.parseData(c)
             if action == "TERMINATE":
                 run = False
+        return inHeaders, inData
 
 def printUsage():
     print("Usage:\n")
@@ -222,7 +219,8 @@ def main():
     # dest, mode, source
         deste = sys.argv[1]
         ms = sys.argv[2].lower().strip()
-        mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
+        mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms ==                 hh = HeaderHandler(charset)
+ "init") or (ms == "start")
         charset = sys.argv[3]
     elif len(sys.argv) == 5:
     # dest, mode, source
@@ -249,6 +247,7 @@ def main():
 
     if DBG: print("[dbg] stuff looks good. starting")
     if DBG: print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(deste, source, charset, mode))
+                 hh = HeaderHandler(charset)
 
     if mode:
         # Origination mode
@@ -271,6 +270,7 @@ def main():
             if HLP: print("[hlp] On server, type either \"HELLO 1.7\", \"SUCCESS\", \"WARN\" or \"GOODBYE\"")
             ret = c.clientCommandHandler()
             if c.tr == "\n": HLP = True
+            # if this server looks like they are not using \r\n, they may be using telnet or netcat to communicate. Send help messages to the client stdout to show how to act as a server just in case you forget :)
             if ret == "CONTINUE":
                 # continue to send data, create headers, etc.
                 hh = HeaderHandler(charset)
@@ -294,14 +294,13 @@ def main():
         # Chain mode
         if DBG: print("[dbg] Entering CHAIN mode")
 
-        if iplib.hasPort(dest):
-            dest = dest.split(":",1)[0]
-            port = int(dest.split(":",1)[1])
+        if iplib.hasPort(deste):
+            dest = deste.split(":",1)[0]
+            port = int(deste.split(":",1)[1])
         else:
             if DBG: print("[dbg] Using default port of {}".format(defport))
             port = defport
-        s = ServerMode(source, port, charset)
+        s = ServerMode(dest, port, charset)
         while True:
-            ret = s.serverCommandHandler()
-            print(ret)
+            inHeaders, inData = s.serverInstance()
 main()

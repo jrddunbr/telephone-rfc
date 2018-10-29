@@ -1,0 +1,1034 @@
+Request for Comments: 9999.9                                Clarkson University
+Category: Working Draft                                            October 2018
+
+    TELEPHONE PROTOCOL -- Ver 1.7.1
+
+Abstract
+
+    Telephone Protocol is a networked version of the classic game "telephone."
+    A message is generated and "whispered" from one to another and finally
+    arrives back to the first one who generated it. In the original game, the
+    message usually arrives back at the originator garbled in a funny way. In
+    this game, however, we will try to transfer the message without changing
+    it.
+
+    This protocol uses TCP as the underlying transport layer. Each "player"
+    will act as both a server (listening to and receiving a message) and a
+    client (talking and sending a message). Each client transfers the message
+    to the next server, ideally in a large ring, until the message returns to
+    the host that sent it.
+
+Errata
+
+    This document obsoletes RFC 9999 (Sept 2018). Additionally, implementors
+    should be aware of the following technical changes:
+
+	- Checksum implementations were fixed from many severe errors in their
+	  implementation, and new languages were added.
+
+    - Keywords were capitalized to clarify usages.
+
+    - Grammar was promoted to its own section.
+
+    - Several technical terms were promoted to the Terminology/glossary.
+
+    - EBNF productions were reordered to generally be readable from top to
+      bottom.
+
+    - Most grammar productions were moved as close as possible to their
+      relevant sections.
+
+    - Headers are now prepended to the top of the sequence of headers, rather
+      than appended to the bottom.
+
+    - Within a hop, some header ordering is now strictly imposed (Hop must
+      begin a new block of headers from a Hop, which concludes at the next Hop
+      header). Each block is now called a Processor Header Block.
+
+    - This revision acknowledges that no standard port exists for the protocol.
+
+    - The HeadersChecksum header is now required to be the last header in the
+      Processor Header Block, if present, and checks only that PHB.
+
+    - Uppercase hexadecimal characters are now allowed.
+
+    - Positive and negative acknowledgements may now be issued from the server
+      in the command protocol.
+
+    - Some superfluous sections were removed.
+
+    - No constraints are now placed on command line arguments or interface, but
+      dynamic configuration of endpoints is nonetheless encouraged.
+
+    - Many examples were moved inline.
+
+    It should be somewhat easy to upgrade from 1.7 to 1.7.1, but do note
+    especially the new Processor Header Block the new interpretation of the
+    HeadersChecksum header, and the new insertion order of the headers. Note
+    that this implementation can and should remain backward-compatible with 1.7
+    header.
+
+Table of Contents
+
+   1 Introduction
+
+   2 Grammar
+
+   3 Terminology
+   3.1 Originator
+   3.2 Intermediate
+   3.3 Processor
+   3.4 Header
+   3.5 Processor Header Block
+   3.6 Body
+   3.7 Message
+   3.8 Host
+   3.9 Endpoint
+   3.10 Checksum
+
+   4 System Headers
+   4.1 Hop
+   4.2 MessageId
+   4.3 FromHost and ToHost
+   4.4 System
+   4.5 Program
+   4.6 Author
+   4.7 SendingTimestamp
+   4.8 MessageChecksum
+   4.9 HeadersChecksum
+   4.10 Warning
+   4.11 Transform
+
+   5 Commands and Responses
+   5.1 HELLO
+   5.2 DATA
+   5.3 QUIT
+   5.4 OK
+   5.5 NOK
+   5.6 SUCCESS
+   5.7 WARN
+   5.8 GOODBYE
+
+   6 Protocol Overview
+   6.1 Statistics
+   6.2 Example Conversations
+
+   Appendix A: Checksums
+
+1   Introduction
+
+    This document proposes a TCP-based protocol for the game "telephone" called
+    the Telephone Protocol. The Telephone Protocol is an application-layer
+    protocol defining how a Telephone Protocol application can communicate with
+    another Telephone Protocol application to transfer messages between hosts,
+    and ultimately in a ring. Within a ring, exactly one host will be selected
+    to send the original message, and that host shall also be the final
+    destination for the message once it has been completely processed within
+    the ring.
+
+2   Grammar
+
+    Where possible, this document will use the Extended Backus-Naur Form
+    (EBNF), also used in other RFCs, to precisely describe the protocol:
+    
+    - As TCP delivers reliable streams of bytes in order, the grammar defined
+      here will range over 8-bit bytes (octets), which may also be referenced
+      as 7-bit ASCII codepoints where convenient. An octet in a production is
+      specified as a decimal number (such as 42, 127, etc.) not less than 0 and
+      not greater than 255. An ASCII codepoint in a production is surrounded by
+      single quotes (such as 'a', which is equivalent to 97).
+
+    - A double-quoted sequence of characters is a sequence of ASCII codepoints
+      that must match exactly. For example, "hello " is the same as 'h' 'e' 'l'
+      'l' 'o' ' '.
+
+    - A dash (-) indicates a range of byte values, inclusive. For example, 'a'
+      - 'd' is equivalent to 97 - 100, and both are equivalent to 97 | 98 | 99
+      | 100 (see pipe below).
+
+    - A star (*) indicates a production that may be repeated zero or more
+      times. For example, 'a' 'b'* matches "a", "ab", "abb", "abbb", and so on.
+
+    - A question mark (?) indicates a production that is optional, and may be
+      omitted. For example, 'a' 'b'? 'c' matches either "ac" or "abc".
+
+    - A pipe between two productions indicates either may match. Pipes have the
+      lowest precedence, so 'a' | 'e' - 'g' | 'q'* would match any of 'a', 'e',
+      'f', or 'g', or any number of 'q' (including zero).
+
+    - New nonterminals are declared in angle brackets (<>), separated from
+      sequences they may match by "::=". Wherever a nonterminal is encountered,
+      it may be replaced by the right hand side.
+
+    Where appropriate, some parenthetical explanations are also included.
+    Whitespace in productions is unimportant.
+
+    As a basis for the rest of this document, the following definitions are
+    provided:
+
+        <CR>        ::=     13 (ASCII carriage return)
+
+        <LF>        ::=     10 (ASCII newline/line feed)
+
+        <CRLF>      ::=     <CR> <LF>
+
+        <SP>        ::=     ' ' (ASCII code 32)
+
+        <digit>     ::=     '0' - '9' (any ASCII decimal digit)
+
+        <number>    ::=     <digit> <digit>* (at least one digit)
+            (the value of the number is parsed as an arbitrary-precision
+            integer)
+
+        <letter>    ::=     'a' - 'z' | 'A' - 'Z'
+
+        <alphanum>  ::=     <letter> | <digit>
+
+        <name>      ::=     <letter> <alphanum>*
+
+        <any>       ::=     0 - 255
+            (Note: several productions are written as containing "<any>*".
+            These productions are to be understood as ending at the soonest
+            match of any following production. For example, "<any>* <CRLF>" is
+            to specify any sequence of bytes, ending with a carriage return and
+            line feed.)
+
+        <nocrlf>    ::=     0 - 9 | 11 - 12 | 14 - 255
+            (any byte except <CR> or <LF>)
+
+    As a compatibility option, an implementor of this specification MAY match
+    <LF> wherever <CRLF> is specified in this grammar. Regardless, all
+    implementations SHOULD send <CRLF> wherever a <CRLF> is stated.
+
+3   Terminology
+
+    For clarity and brevity, important keywords are defined below. They shall
+    be capitalized in the body of this document to clarify their use as a
+    definition hereafter:
+
+3.1 Originator
+
+    The "Originator" of a Message (see below) is a host which initially
+    connects to a server to deliver the primordial Message in a telephone ring.
+    It is distinguished as being a client first, and a server thereafter, where
+    the server MAY not pass the message to the next hop, but instead analyze
+    it.
+    
+    There MUST be only one Originator in any telephone ring.
+
+3.2 Intermediate
+
+    An "Intermediate" of a Message is responsible for passively transferring a
+    Message around the ring. All hosts in a telephone ring except for the
+    Originator are considered Intermediates. An Intermediate is a server
+    primarily, which connects to its next hop as a client when passing a
+    message. All intermediates MUST be prepared to pass multiple messages,
+	subject to certain simplifying restrictions set forth below in Section 5
+	(Commands and Responses).
+
+3.3 Processor
+
+    The "Processor" of a message is any application which handles a message
+    using the Telephone Protocol. In particular, it may be either an Originator
+    or an Intermediate.
+
+3.4 Header
+
+    A Header is a pair of name and value that is associated with, but not part
+    of, the Body of a Message. Implementations SHOULD be able to parse any
+    conforming header, and MUST pass Headers they do not understand unchanged,
+	as described in Section 4 (System Headers) below in detail. Each Header is
+	of the following form:
+
+        <header>    ::=     <name> ':' <SP> <nocrlf>* <CRLF>
+
+    where <name> is the Header's name, and "<nocrlf>*" is the value to be
+    associated with the name. The value of a Header MUST NOT contain either
+    <CR> or <LF>, as specified.
+
+    Certain named Headers are to be specially understood by all implementors of
+    this specification. See Section 4 (System Headers) for details.
+
+3.5 Processor Header Block
+
+        <hopheader> ::=     "Hop: " <number> <CRLF>
+
+        <phb>       ::=     <hopheader> <header>*
+
+    Every Processor of a Message MUST add Headers cataloguing the transit of
+    this Message through this Processor. Any Processor reading a Message may
+    identify the Processor Header Block of a certain Processor as follows:
+
+    - The Hop Header delineates the beginning of a Processor Header Block for a
+      given Processor, and MUST be the first Header sent by the Processor
+      writing it;
+
+    - The end of the Processor Header Block is delineated by either the next
+      Hop Header (which indicates the start of the next Processor Header
+      Block), or by the end of the Headers (strictly for the Originator, which
+      must send a Hop of 0; see Section 4.1).
+
+    Within a Processor Header Block, any ordering of Headers (other than Hop)
+    suffices, and a Processor SHOULD assume that all Headers within a given
+    Processor Header Block were written by the same Processor. Processors MUST
+    uphold this guarantee by ensuring their Hop Header is the first Header sent
+    with the Message.
+
+3.6 Body
+
+    All Messages have a Body, which MAY be empty:
+
+        <body>      ::=     <any>*
+            (to be concluded by the next <eom>--see Message.)
+
+    The Body of a Message has no semantic meaning defined within this
+    specification. A Processor SHOULD NOT try to parse it, except inasmuch as
+    is needed to modify it via the Transform Header (see Section 4.11).
+
+3.7 Message
+
+    A Message consists of Headers and a Body:
+
+        <headers>   ::=     <phb> <phb>*
+            (at least one Processor Header Block must be present)
+
+        <message>   ::=     <headers> <CRLF> <body> <eom>
+            (body MUST be transformed to avoid spurious <eom> from being
+            detected; see below.)
+
+    A Processor terminates a Message with the End of Message sequence:
+
+        <eom>       ::=     <CRLF> '.' <CRLF>
+
+    To prevent spurious recognition of the End of Message sequence, when
+    transmitting the Body, a client MUST follow any "<CRLF> '.'" sequence
+    within the Body by another '.'. The server, upon receiving any "<CRLF> '.'"
+    sequence which is not immediately followed by <CRLF>, MUST delete the '.',
+    preserving the initial <CRLF> and any Body data following the '.'.
+
+    Successful recognition of the End of Message sequence returns the protocol
+    to Command state (see Section 5.2).
+
+3.8 Host
+
+    A Host represents the network-layer address of a Processor. Note that this
+    is not enough information to uniquely identify a single processor; see
+    Endpoint below. This protocol allows specifying a Hostname either as a
+    dotted-quad IPv4 address, or a DNS name, interchangeably:
+
+        <3digit>    ::=     <digit> <digit>? <digit>?
+            (technically, up to three digits)
+
+        <ip4addr>   ::=     <3digit> '.' <3digit> '.' <3digit> '.' <3digit>
+            (a "dotted quad" IPv4 address)
+
+        <hostchar>  ::=     <alphanum> | '.'
+
+        <hostname>  ::=     <hostchar> <hostchar>*
+
+        <host>      ::=     <hostname> | <ip4addr>
+
+3.9 Endpoint
+
+    An Endpoint gives both the network- and transport-layer address of a
+    Processor, which is sufficient to uniquely identify it:
+
+        <portspec>  ::=     ':' <number>
+            (the port is given as the number)
+
+        <endpoint>  ::=     <host> <portspec>
+
+    The Telephone Protocol has no standardized port, and so a <portspec> with a
+    valid port number MUST be given to specify any given Processor at runtime.
+
+3.10 Checksum
+
+    A Checksum gives a value which can be used to validate the integrity of a
+    sequence of bytes. The Telephone Protocol uses the "Internet Checksum"
+    method, in which data is interpreted as a sequence of little-endian 16-bit
+    unsigned integers (padded with a zero byte if required), is summed with
+    overflow carried in, and bitwise inverted.
+
+    Checksums in the Telephone Protocol headers are written as exactly four
+    hexadecimal digits:
+
+        <hex>       ::=     <digit> | 'a' - 'f' | 'A' - 'F'
+
+        <csum>      ::=     <hex> <hex> <hex> <hex>
+
+    A Processor sending a Checksum MUST left pad with zeros ('0') out to four
+    digits, and MUST NOT generate any Checksums with more than four digits, nor
+    with a leading "0x", nor with any sign (e.g., "-").
+
+    Appendix A contains reference code useful for computing the Checksum
+    in various languages.
+
+    In general, failure to validate a Checksum MUST NOT result in failure to
+    pass a Message, for the resilience of the protocol.
+
+4   System Headers
+
+    This specification defines all of the following named Headers to have
+    special meaning.
+
+4.1 Hop
+
+        <hopheader> ::=     "Hop: " <number> <CRLF>
+
+    The Hop Header specifies, numerically, where the current Message is within
+    the telephone ring. All Processors MUST send this field as the first Header
+    in their Processor Header Block. The Originator MUST set the value of this
+    Header to 0. All Intermediates MUST set the value of this Header to the
+    value of the most recently-sent Hop Header value plus 1.
+
+    The Originator will eventually receive a Message with the most-recent Hop
+    Header valued at n, where n is the number of Processors in the ring.
+
+4.2 MessageId
+
+        <midheader> ::=     "MessageId: " <number> <CRLF>
+
+    The MessageID is a numeric Header added by the Originator to distinguish
+    this Message from any other Message by that Originator. Aside from being
+    numeric, the MessageID may be set by the Originator to any value. An
+    Intermediate MUST NOT add a MessageID, nor change an existing MessageID,
+    nor depend on the existence of a MessageID, and MUST pass it unchanged if
+    it exists.
+
+4.3 FromHost and ToHost
+
+        <fromhost>  ::=     "FromHost: " <endpoint> <CRLF>
+
+        <tohost>    ::=     "ToHost: " <endpoint> <CRLF>
+
+    The FromHost and ToHost Headers contain the Endpoints used in the most
+    recent communication:
+
+    - The FromHost Header documents the Endpoint from which the current Message
+      was received; and
+
+    - The ToHost Header documents the Endpoint to which the current Processor
+      is connecting to send the Message.
+
+    The Originator SHOULD NOT set the FromHost header, as it is not forwarding.
+
+4.4 System
+
+        <sysheader> ::=     "System: " <any>* <CRLF>
+
+    The System Header describes the platform upon which the current Processor
+    is running. This specification imposes no format on this field, but it
+    SHOULD include information about the current operating system, such as its
+    name (e.g., "Windows", "Mac OS", "Linux", etc.) and a relevant version
+    (e.g., "10" or "XP", "X", "4.12.2", etc.).
+
+4.5 Program
+    
+        <proghdr>   ::=     "Program: " <name> '/' <any>* <CRLF>
+
+    The Program Header describes the implementation of the current Processor.
+    Specifically, it MUST take the form of a language in use (e.g., "C", "C++",
+    "C#", "Java", "Perl", "PHP", "Python", "BASIC", "Ruby", "Go", "Rust",
+    etc.), followed by a slash ('/'), followed by any version information in
+    any format relevant to that language's compiler or runtime (e.g. "C++/G++
+    6.2", "Python/3.6.4", etc.).
+
+4.6 Author
+
+        <slashname> ::=     '/' <any> <any>*
+
+        <names>     ::=     <any> <any>* <slashname>*
+            (A list of arbitrary-format names, separated by slashes, terminated
+            by <CRLF> in the Header below.)
+
+        <authhdr>   ::=     "Author: " <names> <CRLF>
+
+    The Author Header contains a free-format value which SHOULD specify the
+    persons who created this implementation of a Processor. Multiple names are
+    separated by slashes.
+
+4.7 SendingTimestamp
+
+        <ts>        ::=     <number> ':' <number> ':' <number> ':' <number>
+            (in the format hours:minutes:seconds:milliseconds; see below.)
+
+        <sendtshdr> ::=     "SendingTimestamp: " <ts> <CRLF>
+
+    The SendingTimestamp Header specifies when, on the current Processor's
+    clock, the Message was sent, with a precision in terms of milliseconds. The
+    order of the numbers is hours, minutes, seconds, and milliseconds, and MUST
+    be measured from UTC. The number of hours MUST NOT exceed 24; in the likely
+    event that multiple days have passed since the UTC epoch, measure the
+    number of hours since midnight on UTC. Hours are specified with 24 hour
+    time, with any number not less than 0 and not greater than 23 being valid.
+    All other components have their usual ranges: not less than 0 and not
+    greater than 60 for minutes and seconds, and not less than 0 and not
+    greater than 999 for milliseconds.
+
+    The hours, minutes, and seconds MUST be sent as two digits, padded left
+    with zeros ('0') as needed. The milliseconds field MUST be similarly padded
+    to three digits if need be.
+
+4.8 MessageChecksum
+
+        <mcsum>     ::=     "MessageChecksum: " <csum> <CRLF>
+
+    The MessageChecksum Header contains the Checksum over all bytes in the Body
+    of the Message. In particular, the first byte of the Body is the byte
+    following the <CRLF> separating the Headers and Body, and the last byte of
+    the Body immediately precedes the 5-byte <eom> sequence. Failing to bound
+    this range exactly will likely result in invalid Checksums.
+
+    A Processor MUST validate the MessageChecksum Header of only the
+    most-recent Processor Header Block. (Any previous MessageChecksum Headers
+    may have been invalidated by arbitrary Transforms.) A Processor generating
+    the MessageChecksum MUST perform it over exactly the Body which it sends to
+    the next Processor (that is, after any Transforms are applied).
+
+    Per section 3.10, a failure to validate the MessageChecksum Header MUST NOT
+    terminate passing a message. The Processor SHOULD pass a Warning Header,
+    however (see Section 4.10).
+
+4.9 HeadersChecksum
+
+    This Header is optional. Implementations MAY NOT generate or check this
+    Header, but MUST support the following semantics if they do.
+
+        <hdrcsum>   ::=     "HeadersChecksum: " <csum> <CRLF>
+
+    The HeadersChecksum Header contains the Checksum over all bytes in the
+    Processor Header Block in which this Header is contained (starting with the
+    'H' in "Hop"), up to and including the <CRLF> of the previous Header.
+
+    Unlike the MessageChecksum, validating HeadersChecksum Headers is optional;
+    a Processor MAY validate them if it chooses to. Additionally, a Processor
+    MAY validate all HeadersChecksums within a Message, because the Processor
+    Header Blocks are independent. A single Processor Header Block MAY, but
+    likely SHOULD NOT, contain multiple HeadersChecksum Headers. Instead, a
+    Processor SHOULD insert a HeadersChecksum Header as the last Header in its
+    own Processor Header Block.
+
+4.10 Warning
+
+    If a Processor acting as a server detects a correctable violation of the
+    Telephone Protocol, it SHOULD add a Warning Header before passing the
+    Message. The format is free-form, human-readable text:
+
+        <warnhdr>   ::=     "Warning: " <any>* <CRLF>
+
+    A Processor SHOULD NOT attempt to parse this data, but MAY display it to
+    the user.
+
+4.11 Transform
+
+    A Processor MAY choose to arbitrarily transform the Body in a reversible
+    manner. If it does so, it MUST add a Transformation Header:
+
+        <tranhdr>   ::=     "Transform:" <any>* " TO " <any>* <CRLF>
+            (The first <any>* is the "from", the second is the "to".)
+
+    The Transformation Header specifies which transformation of the Body was
+    undertaken. It SHOULD be specified in a pseudo-machine-readable format, but
+    Processors SHOULD NOT attempt to parse it (until a more thorough
+    specification is defined). Some examples follow:
+
+    - Transform: Word/the TO Word/super
+        (Replacing literal words)
+    - Transform: Word/VERB TO Random/VERB
+        (Replacing a class of word with random words--think "Mad Libs")
+    - Transform: Word/NOUN/one TO Random/NOUN
+        (Replacing a literal word with a random word of a certain class)
+    - Transform: Langauge/English TO Language/Spanish
+        (Translation--web services exist which can do this)
+    - Transform: MIME-TYPE TO MIME-TYPE
+        (Compression, conversion, etc.)
+
+    A Processor which performs a transformation MUST compute the
+    MessageChecksum Header after the transformation is done; the resulting
+    Checksum must be valid for the Body exactly as sent to the next Processor.
+
+5   Commands and Responses
+
+    Although the primary goal of the Telephone Protocol is to send Messages, a
+    minimal handshake-style protocol exists to facilitate connection. This
+    layer of commands bears an intentional resemblance to the SMTP protocol.
+
+    The command protocol is line oriented; all commands except DATA terminate
+    with <CRLF>. The DATA command terminates with an End of Message sequence;
+    see below.
+
+    For examples within this section, lines prefaced by C: indicate commands
+    sent by the client, and lines prefaced by S: indicate lines sent by the
+    server.
+
+    While these features may be desirable, for ease of implementation, a client
+    SHOULD NOT assume that a server can:
+
+    - Receive multiple messages on the same connection, nor
+
+    - Accept multiple connections simultaneously.
+
+5.1 HELLO
+
+    This is sent by both the client and the server. The server MUST send this
+    immediately after a connection is established, and the client MUST reply
+    with this command before any other command is sent on the connection. A
+    server SHOULD terminate a connection which violates this protocol with
+    GOODBYE, below.
+
+        <version>   ::=     <number> '.' <number> '.'? <number>?
+
+        <hellocmd>  ::=     "HELLO " <version> <CRLF>
+
+    Implementations compliant to this specification should report a version of
+    "1.7.1". A 1.7.1-compliant server MUST acknowledge the version of a 1.7.1
+    client. For example:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7.1
+        S: OK
+
+    For backward compatibility with buggy 1.7 clients defined in the previous
+    iteration of this specification, a server MUST NOT acknowledge the version
+    of a 1.7 client:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7
+        C: DATA
+
+    Note that some 1.7-protocol clients may not be able to parse a
+    three-component version.
+
+5.2 DATA
+
+    This is sent by the client on an open connection. The client MUST have
+    received acknowledgement of a previous HELLO handshake.
+
+        <datacmd>   ::=     "DATA" <CRLF>
+
+    The server for the 1.7.1 protocol MUST respond with OK or NOK. If the
+    server responds with OK, the client then sends a complete Message, followed
+    by the End of Message sequence. The 1.7.1 server then acknowledges the
+    message with any of SUCCESS, WARN, or NOK. For example:
+
+        C: DATA
+        S: OK
+        C: <message>
+        S: SUCCESS
+
+    For 1.7-protocol server compatibility, a client MUST NOT wait for
+    acknowledgement of DATA with NOK or OK, and the server MUST NOT send NOK
+    after a message:
+
+        C: DATA
+        C: <message>
+        S: SUCCESS, and new languages were added.M
+    See SUCCESS and WARN for the state of the server after receiving such an
+    acknowledgement.
+
+5.3 QUIT
+
+    This is sent by the client on an open connection. A server receiving this
+    MUST reply with GOODBYE, and summarily close the connection, but also
+    SHOULD be prepared to receive an error when sending GOODBYE if the client
+    has already closed the connection.
+
+        <quitcmd>   ::=     "QUIT" <CRLF>
+
+    For example:
+
+        C: QUIT
+        S: GOODBYE
+
+    After this conversation, both client and server close their connections.
+
+5.4 OK
+
+    This is sent by the server to generally acknowledge a command. Optionally,
+    it may be followed by a human-readable explanation of the current state of
+    the protocol. If this is given, it MUST be separated from OK by a single
+    space (ASCII code 32).
+
+        <descr>     ::=     ' ' <any>*
+
+        <okresp>    ::=     "OK" <descr>? <CRLF>
+
+    The <descr> describes the state of a protocol in an informal way; for
+    example:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7.1
+        S: OK 127.0.0.1 at your service!
+        C: DATA
+        S: OK go ahead and send your message...
+        C: <message>
+
+    This response MUST NOT be sent to any client using a version of 1.7 or
+    earlier.
+
+5.5 NOK
+
+    This is sent by the server to negatively acknowledge a command. Upon
+    receipt, the client MUST consider the previous command to have failed, and
+    any state change that may have occurred to be void.
+
+        <nokresp>   ::=     "NOK" <descr>? <CRLF>
+
+    The <descr>, as with OK, gives a human-readable description of the current
+    state of the protocol, including possibly the cause of failure:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.9
+        S: NOK Unsupported version!
+        C: QUIT
+        S: GOODBYE
+
+    This is a valid response to an invalid or unrecognized command:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7.1
+        S: OK at your service
+        C: FOOBAR
+        S: NOK unrecognized command
+
+    Additionally, this response may be used to indicate a syntactically-invalid
+    Message:
+
+        C: DATA
+        S: OK go ahead...
+        C: <eom>
+        S: NOK message body not begun!
+        C: QUIT
+        S: GOODBYE
+
+    This response MUST NOT be sent to any client using a version of 1.7 or
+    earlier.
+
+5.6 SUCCESS
+
+    This is sent by the server to positively acknowledge the receipt of a
+    Message via the DATA command, where the Message is acknowledged to be
+    completely valid.
+
+        <successr>  ::=     "SUCCESS" <CRLF>
+    
+    A response by the server of SUCCESS indicates that:
+
+    - The server has a copy of the Message in full, and
+
+    - The server has finished processing the Message for validity in full, and
+      has found the Message to be valid, but
+
+    - The server MAY not have yet forwarded the Message to the next Processor
+      (so as to prevent indefinite blocking while waiting for the Message to
+      traverse the entire ring).
+
+    For example:
+
+        C: DATA
+        S: OK go ahead...
+        C: <message>
+        S: SUCCESS
+        C: QUIT
+        S: GOODBYE
+
+5.7 WARN
+
+    This is sent by the server to positively acknowledge a message via the DATA
+    command, but where the Message to be forwarded is not completely valid.
+
+        <warnresp>  ::=     "WARN" <CRLF>
+    
+    A response by the server of WARN indicates that:
+
+    - The server has a copy of the Message in full, and
+
+    - The server has finished processing the Message for validity, and has
+      found some issues in the message (such as a bad checksum or missing
+      header), but
+
+    - The server MAY not have yet forwarded the Message to the next Processor
+      (for the same reason as in SUCCESS).
+
+    For example:
+
+        C: DATA
+        S: OK go ahead...
+        C: <message>
+        S: WARN
+        C: QUIT
+        S: GOODBYE
+
+    In general, a WARN response should be generated whenever the server, as a
+    Processor, must add a Warning header to the Message while processing it;
+    see Section 4.10.
+
+5.8 GOODBYE
+
+    This is sent by the server to indicate that the connection is about to be
+    closed. The client does not respond.
+
+        <goodbyer>  ::=     "GOODBYE" <CRLF>
+
+    The server may send this at any time. The client SHOULD subsequently expect
+    the connection to be closed, and thus unreadable and unwritable. For
+    example:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7.1
+        S: OK hello, 127.0.0.1!
+        C: DATA
+        S: GOODBYE
+
+    In this case, the client MUST NOT send any Message, as the connection
+    should be considered closed.
+
+    Although no longer recommended in this version of the specification,
+    versions 1.7 and earlier encouraged servers to send GOODBYE in response to
+    command errors, where NOK would be considered here. The semantics are the
+    same: the connection is to be considered closed.
+
+6   Protocol Overview
+
+    To begin the game, a telephone ring must be constructed. This requires
+    configuration of the Processors to indicate both their own listening
+    address, and their next hop, which should perform an uninterrupted cycle.
+    Any method may be used to change these addresses, but methods which rely on
+    recompiling or manually editing source code are discouraged.
+
+    In general, the Originator must be the last Processor to be started. As
+    above, the Originator is the sender of the aboriginal Message, and dictates
+    its content. The Originator is permitted to use any Body, including a fixed
+    string in the source, but implementors SHOULD allow the user to configure
+    any Body if possible.
+
+    The general protocol-level conversation for sending a message in an
+    automated manner, assuming all goes well, will likely look like this, after
+    the client establishes a TCP connection to the server:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7.1
+        S: OK hello, 127.0.0.1!
+        C: DATA
+        S: OK go ahead...
+        C: <message>
+        S: SUCCESS
+        C: QUIT
+        S: GOODBYE
+
+    Note that SUCCESS may be exchanged with WARN without compromising the
+    guarantee that the Message was indeed passed. An Intermediate which
+    entirely fails to pass the Message to its next hop SHOULD indicate this
+    fact clearly to its user.
+
+6.1 Statistics
+
+    Implementors are encouraged to display information about the
+    Message-passing process to users.
+
+    For an Intermediate, this information SHOULD include the validity of any
+    Checksum(s), or the absence thereof.
+
+    For an Originator, this SHOULD include the information above, and an
+    analysis of the Message and its path through the ring, including:
+
+    - The number of machines the Message passed through;
+
+    - Whether or not the Body was transformed;
+
+    - For each Processor Header Block:
+
+        - How long it took for the Message to be processed (difference between
+          the last and current SendingTimestamp);
+
+        - Which languages, authors, and/or platforms were in use (see Program
+          4.5, Author 4.6, and System 4.4);
+
+        - Where and whether issues occurred (via Warning 4.10);
+
+        - What Transforms (4.11), if any, were applied;
+
+    ...and so forth.
+
+6.2 Example Conversations
+
+    Here is a synthetic message which hopped on three Processors:
+
+        Hop: 3
+        FromHost: 192.168.1.105:43975
+        ToHost: 192.168.1.103:5000
+        System: Linux/Ubuntu/16.04 LTS
+        Program: Python/3.6.4
+        Author: Example Author/Test Author
+        SendingTimestamp: 08:46:03:348
+        MessageChecksum: 260e
+        Hop: 2
+        FromHost: 192.168.1.101:52390
+        ToHost: 192.168.1.105:5001
+        System: Windows/7
+        Program: C++/Visual C++11
+        Author: Test Author
+        SendingTimestamp: 08:46:04:565
+        MessageChecksum: 260e
+        Hop 1:
+        FromHost: 192.168.1.112:39471
+        ToHost: 192.168.1.101:9001
+        System: Mac OS/X Leopard
+        Program: NodeJS/8.2.1
+        Author: Example Author
+        SendingTimestamp: 08:46:01:192
+        MessageChecksum: 260e
+        Hop 0:
+        ToHost: 192.168.1.112:1234
+        System: Linux/Android/8.2
+        Program: Java/Dalvik/1.8
+        Author: Test Example Author
+        SendingTimestamp: 08:46:02:966
+        MessageChecksum: 260e
+
+        test
+
+    (For the sake of the checksum, this Body includes a trailing newline (ASCII
+    code 10) without a carriage return.)
+
+    From this example message, assuming it is now being processed at the
+    Originator, it can infer:
+
+    - The Originator is probably 192.168.1.103, and is listening on port 5000;
+
+    - There is a Linux machine, a Windows machine, a Mac machine, and
+      apparently an Android phone;
+
+    - The implementations are in Python, C++, NodeJS, and Java;
+
+    - Interestingly, the Message jumped back in time between Hop 2 and Hop
+      3--it's likely that the Windows machine's clock is a little bit fast;
+
+    - Based on the MessageChecksums, it appears that the Body was never
+      transformed--and a lack of Transform Headers seems to confirm this.
+
+    The following is an example of a conversation with a 1.7-compatible client,
+    with full Message inline:
+
+        S: HELLO 1.7.1
+        C: HELLO 1.7
+        C: DATA
+        C: Hop: 0
+        C: ToHost: 192.168.1.103:5000
+        C: System: Linux/Debian/Stretch
+        C: Program: Rust/1.0 or later
+        C: Author: Test Author
+        C: SendingTimestamp: 11:31:43:052
+        C: MessageChecksum: 0cb2
+        C:
+        C: hello!
+        C:
+        C: .
+        S: SUCCESS
+        C: QUIT
+        S: GOODBYE
+
+    (Note, again, that the message ends with <LF><eom>.)
+
+APPENDIX A: Checksums
+
+	Copied below are four example programs which generate the checksum of
+	exactly the bytes:
+
+		't' 'e' 's' 't' '\n'
+
+	which should have a checksum of 0e26.
+
+	First, an ANSI C version:
+
+		#include <stdio.h>
+
+		unsigned short checksum(void *data, unsigned long size) {
+			unsigned long sum = 0, i = 0;
+			unsigned char *udata = data;
+
+			while(i < size) {
+				sum += udata[i] << ( (i&1) ? 0 : 8 );
+				i++;
+			}
+
+			while(sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+
+			return ~((unsigned short) sum);
+		}
+
+		int main() {
+			char data[] = "test\n";
+
+			printf("%04x\n", checksum(data, 5));
+
+			return 0;
+		}
+
+	Second, an ANSI C99 version that should work with C++:
+
+		#include <stddef.h>
+		#include <stdint.h>
+		#include <stdio.h>
+
+		uint16_t checksum(void *data, size_t size) {
+			uint32_t sum = 0;
+			size_t i = 0;
+			uint8_t *udata = (uint8_t *) data;
+
+			while(i < size) {
+				sum += udata[i] << ( (i&1) ? 0 : 8 );
+				i++;
+			}
+
+			while(sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+
+			return ~((uint16_t) sum);
+		}
+
+		int main() {
+			char data[] = "test\n";
+
+			printf("%04x\n", checksum(data, 5));
+
+			return 0;
+		}
+
+	Third, a Python version tested with versions 2.7 and 3.6:
+
+		def checksum(bt):
+			if not isinstance(bt, bytes):
+				raise TypeError('Expected bytes, got {}'.format(type(bt)))
+
+			tobyte = ord
+			if isinstance(bt[0], int):  # Python 3
+				tobyte = lambda x: x
+
+			sum = 0
+			for i in range(len(bt)):
+				sum += tobyte(bt[i]) << (0 if i&1 else 8)
+
+			while (sum >> 16):
+				sum = (sum & 0xFFFF) + (sum >> 16)
+
+			return (~sum) & 0xFFFF
+
+		print('{:04x}'.format(checksum(b'test\n')))
+
+	Fourth, a Rust >1.0 version:
+
+		pub fn checksum(data: &[u8]) -> u16 {
+			let mut sum: usize = 0;
+
+			for i in 0..data.len() {
+				sum += (data[i] as usize) << (if i & 1 != 0 { 0 } else { 8 });
+			}
+
+			while sum > 0xFFFF { sum = (sum & 0xFFFF) + (sum >> 16); }
+
+			!(sum as u16)
+		}
+
+		fn main() {
+			println!("{:04x}", checksum(b"test\n"));
+		}

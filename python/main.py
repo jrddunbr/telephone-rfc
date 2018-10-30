@@ -9,6 +9,15 @@ HLP = False
 def mkRandNum(size):
     return ''.join(random.SystemRandom().choice(string.digits) for _ in range(size))
 
+
+def clientMode():
+    pass
+
+
+def serverMode():
+    pass
+
+
 def printUsage():
     print("Usage:\n")
     pname = "python3 main.py"
@@ -25,9 +34,7 @@ def printUsage():
 def main():
     global HLP
     undest = "" # possibly errored and with port potentially
-    dest = "" # definte destination IP only.
     source = "0.0.0.0" # default source address - any address
-    defport = 32409
     mode = False # False is not originiate, ie, chain mode
     charset = "ascii"
     if len(sys.argv) == 2:
@@ -40,6 +47,7 @@ def main():
         mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms == "init") or (ms == "start")
     elif len(sys.argv) == 4:
     # dest, mode, source
+        destPort = int(undest.split(":",1)[1]
         undest = sys.argv[1]
         ms = sys.argv[2].lower().strip()
         mode = (ms == "0") or (ms == "o") or (ms == "originator") or (ms ==  "init") or (ms == "start")
@@ -70,9 +78,21 @@ def main():
     if DBG: print("[dbg] stuff looks good. starting")
     if DBG: print("dest: {}\nsource: {}\ncharset: {}\nmode: {}".format(undest, source, charset, mode))
 
+    destIP = ""
+    destPort = 32409
+
+    if iplib.hasPort(undest):
+        destIP = undest.split(":",1)[0]
+        destPort = int(undest.split(":",1)[1])
+    else:
+        destIP = undest
+
     if mode:
         # origination mode
+        clientMode(destIP, destPort)
     else:
         # chain mode
+        while 1:
+            clientMode(serverMode(destPort))
 
 main()

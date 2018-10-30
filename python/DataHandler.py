@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import string, pprint, Checksum
+import string, pprint, Checksum, iplib, random, platform, sys, datetime
 
 class DataHandler:
     def __init__(self, charset, le):
@@ -32,7 +32,7 @@ class DataHandler:
                     title, data = [x.strip() for x in line.strip().split(":",1)]
                     if hop not in self.hdata:
                         self.hdata[hop] = {}
-                    self.hdata[hop][title] = data
+                    self.hdata[hop][title.lower()] = data
                 except:
                     self.warnings.append("ERROR PARSING HEADER {}".format(hop))
 
@@ -50,6 +50,7 @@ class DataHandler:
         # seperate the message from the EOM. If no EOM detected, we just use the rest of the transmission from the client as the message, and throw an error to the client later
         try:
             self.full_message, _ = self.raw_message.split("{}.{}".format(self.le, self.le),1)
+            self.full_message = self.full_message.replace("{}..{}".format(self.le, self.le), "{}.{}".format(self.le, self.le))
         except:
             self.full_message = self.raw_message
             self.warnings.append("ERROR, NO EOM DETECTED")
@@ -58,24 +59,71 @@ class DataHandler:
         self.raw_lheaders = self.raw_headers.lower()
 
         self.localMessageChecksum = Checksum.checksum(self.full_message, self.charset)
-        print("Local Message Checksum: {}".format(self.localMessageChecksum))
 
         # split out the hops and begin parsing each one
         hopsplit = ["hop{}".format(x) for x in self.raw_lheaders.split("hop") if x.strip() != ""]
         for hop in hopsplit:
             try:
+                # hop number
                 hopnum = int(self.parseForHeader("hop", hop))
+                # convert rest of headers to a dictionary variable
                 self.headerToDict(int(hopnum), hop)
-                chksum = Checksum.checksum(hop, self.charset)
-                self.hdata[hopnum]["LocalHeadersChecksum"] = chksum
+                # take local checksum of hop header
+                self.hdata[hopnum]["localheaderschecksum"] = Checksum.checksum(hop, self.charset)
             except Exception as e:
-                print(e)
                 self.warnings.append("MISSING HOP NUMBER FOR ONE OF THE HOPS")
-
-
-        pprint.pprint(self.hdata)
-        print()
-        print("`{}`".format(self.full_message))
 
         # return the produced warnings to the server handler, if desired can be used later.
         return self.warnings
+
+    def getNewHopNum(self):
+        return max([x for x in self.hdata]) + 1
+
+    def mkRandNum(self, size):
+        return ''.join(random.SystemRandom().choice(string.digits) for _ in range(size))
+
+    def createOutgoing(self, destIP, destPort, srcIP, srcPort, message):
+        output = ""
+        newHeaders = ""
+        nhl = []
+
+        hopnum = 0
+        mid = str(self.mkRandNum(8))
+        if self.raw_headers != "":
+            # we have had previous communications
+            hopnum = self.getNewHopNum()
+            try:
+                nmid = self.hdata[hopnum-1]["messageid"]
+                if iplib.isInteger(str(nmid)):
+                    mid = str(nmid)
+            except:
+                pass # oh well.
+
+        # generate the new headers
+        nhl.append(("Hop",str(hopnum)))
+        nhl.append(("MessageId", mid))
+        nhl.append(("FromHost", "{}:{}".format(srcIP, srcPort)))
+        nhl.append(("ToHost", "{}:{}".format(destIP, destPort)))
+        nhl.append(("System", "{} {} {}".format(platform.system(), platform.machine(), platform.release())))
+        nhl.append(("Program", "{}/{}".format("Python", platform.python_version())))
+        nhl.append(("Author", "Jared Dunbar"))
+        tm = datetime.datetime.utcnow()
+        nhl.append(("SendingTimestamp", "{:02}:{:02}:{:02}:{:03}".format(tm.hour, tm.minute, tm.second, int(tm.microsecond / 100))))
+        nhl.append(("MessageChecksum", Checksum.checksum(message.replace("\r\n.\r\n", "\r\n..\r\n"), self.charset)))
+
+        # build new headers
+        newHeaders = "\r\n".join(["{}: {}".format(x ,y) for (x,y) in nhl]) + "\r\n"
+
+        newHeaders += "HeaderChecksum: {}\r\n".format(Checksum.checksum(newHeaders, self.charset))
+
+        # new headers slapped on top
+        output += newHeaders
+        # Old headers slapped on bottom
+        output += self.raw_headers
+        # Header and Body seperator
+        output += "\r\n"
+        # Message (properly encoded)
+        output += message.replace("\r\n.\r\n", "\r\n..\r\n")
+        # EOM
+        output += "\r\n.\r\n"
+        return output

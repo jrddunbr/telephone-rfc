@@ -3,12 +3,21 @@
 from DataHandler import DataHandler
 import Checksum
 
-h = DataHandler("utf-8", "\n")
+nm = input("Filename: ")
 
-f = open("test.txt")
+f = open(nm)
 data = "".join(f.readlines())
 f.close()
 
-#print(data)
+le = "\r\n"
 
-print(h.parseIncoming(data))
+if not "\r" in data:
+    le = "\n"
+
+h = DataHandler("utf-8", le)
+
+notes = h.parseIncoming(data)
+
+h.getNewHopNum()
+
+print(h.createOutgoing("10.0.0.1", 2343, "10.4.5.2", 3245, h.full_message))

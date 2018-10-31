@@ -29,7 +29,7 @@ def checkIPv4(addr):
 # If good address, return True
 def checkIPv4maybePort(addr):
     if ":" in addr:
-        ip, port = addr.split(":",1)
+        ip, port = addr.rsplit(":",1)
         good = checkIPv4(ip)
         try:
             _ = int(port)

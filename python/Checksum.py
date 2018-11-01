@@ -20,6 +20,8 @@ def checksum(bt):
 
 # checksum from string
 def checksum(data, charset):
+    if data == "":
+        return "FFFF"
     bt = data.encode(charset)
     if not isinstance(bt, bytes):
         raise TypeError('Expected bytes, got {}'.format(type(bt)))

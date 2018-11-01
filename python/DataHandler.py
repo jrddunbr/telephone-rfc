@@ -13,6 +13,8 @@ class DataHandler:
         self.charset = charset # character set in use
         self.warnings = [] # warnings about the message being parsed
         self.localMessageChecksum = ""
+        self.srcIP = ""
+        self.srcPort = ""
 
     def parseForHeader(self, search, hopdata):
         search = search.lower()
@@ -54,6 +56,7 @@ class DataHandler:
         except:
             self.full_message = self.raw_message
             self.warnings.append("ERROR, NO EOM DETECTED")
+        print(self.full_message)
 
         # create lowercase headers
         self.raw_lheaders = self.raw_headers.lower()
@@ -82,7 +85,7 @@ class DataHandler:
     def mkRandNum(self, size):
         return ''.join(random.SystemRandom().choice(string.digits) for _ in range(size))
 
-    def createOutgoing(self, destIP, destPort, srcIP, srcPort, message):
+    def createOutgoing(self, destIP, destPort, message):
         output = ""
         newHeaders = ""
         nhl = []
@@ -102,7 +105,8 @@ class DataHandler:
         # generate the new headers
         nhl.append(("Hop",str(hopnum)))
         nhl.append(("MessageId", mid))
-        nhl.append(("FromHost", "{}:{}".format(srcIP, srcPort)))
+        if self.srcIP != "":
+            nhl.append(("FromHost", "{}:{}".format(self.srcIP, self.srcPort)))
         nhl.append(("ToHost", "{}:{}".format(destIP, destPort)))
         nhl.append(("System", "{} {} {}".format(platform.system(), platform.machine(), platform.release())))
         nhl.append(("Program", "{}/{}".format("Python", platform.python_version())))

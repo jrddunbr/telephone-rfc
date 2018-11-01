@@ -1,0 +1,69 @@
+ORIGINATOR: PROGRAM IN ORIGINATION MODE
+
+jared@jtop:~/Projects/telephone-rfc/python$ py main.py init 127.0.0.1:2999
+Sent data. Recieved SUCCESS
+
+jared@jtop:~/Projects/telephone-rfc/python$
+
+
+
+FIRST HOP: PROGRAM IN LOOP MODE
+
+jared@jtop:~/Projects/telephone-rfc/python$ py main.py chain 127.0.0.1:3000
+Listening on port 2999
+Connection estabilished from 127.0.0.1:57926
+This is a test
+
+Hello
+
+..
+
+done
+
+Client uses bad line endings!
+Sent data. Recieved SUCCESS
+
+jared@jtop:~/Projects/telephone-rfc/python$
+
+
+
+SECOND HOP: NETCAT
+
+jared@jtop:~$ nc -l 3000
+HELLO 1.7.1
+HELLO 1.7.1
+OK
+DATA
+OK
+Hop: 1
+MessageId: 23820121
+FromHost: 127.0.0.1:3000
+ToHost: 127.0.0.1:3000
+System: Linux x86_64 4.14.78-1-lts
+Program: Python/3.7.1
+Author: Jared Dunbar
+SendingTimestamp: 03:39:58:4577
+MessageChecksum: 20a5
+HeaderChecksum: 65c8
+Hop: 0
+MessageId: 23820121
+FromHost: 127.0.0.1:2999
+ToHost: 127.0.0.1:2999
+System: Linux x86_64 4.14.78-1-lts
+Program: Python/3.7.1
+Author: Jared Dunbar
+SendingTimestamp: 03:39:50:5985
+MessageChecksum: 20a5
+HeaderChecksum: 3fbf
+This is a test
+
+Hello
+
+..
+
+done
+
+.
+SUCCESS
+QUIT
+jared@jtop:~$

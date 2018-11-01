@@ -1,0 +1,27 @@
+Hop: 1
+MessageId: 23820121
+FromHost: 127.0.0.1:3000
+ToHost: 127.0.0.1:3000
+System: Linux x86_64 4.14.78-1-lts
+Program: Python/3.7.1
+Author: Jared Dunbar
+SendingTimestamp: 03:39:58:4577
+MessageChecksum: 20a5
+HeaderChecksum: 65c8
+Hop: 0
+MessageId: 23820121
+FromHost: 127.0.0.1:2999
+ToHost: 127.0.0.1:2999
+System: Linux x86_64 4.14.78-1-lts
+Program: Python/3.7.1
+Author: Jared Dunbar
+SendingTimestamp: 03:39:50:5985
+MessageChecksum: 20a5
+HeaderChecksum: 3fbf
+This is a test
+
+Hello
+
+..
+
+done
